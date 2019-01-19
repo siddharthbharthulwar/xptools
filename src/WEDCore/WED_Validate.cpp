@@ -985,8 +985,8 @@ static void ValidateOneATCFlow(WED_ATCFlow * flow, validation_error_vector& msgs
 			}
 
 	if (!flowCanBeReached)
-		msgs.push_back(validation_error_t(string("ATC Flow '") + name + "' can never be reached. All winds up to " + to_string(ATC_FLOW_MAX_WIND) + " kts are covered by flows listed ahead of it. This is not taking time and ceiling restrictions into account", 	
-						warn_atc_flow_never_reached, flow, apt));
+		msgs.push_back(validation_error_t(string("ATC Flow '") + name + "' can never be reached. All winds up to " + to_string(ATC_FLOW_MAX_WIND) + 
+		       " kts are covered by flows listed ahead of it. This is not taking time restrictions into account", warn_atc_flow_never_reached, flow, apt));
 
 	// Check ATC Time rules having times being within 00:00 .. 24:00 hrs, 0..59 minutes and start != end time. Otherweise XP will give an error.
 	bool isActive24_7 = true;
@@ -1003,7 +1003,7 @@ static void ValidateOneATCFlow(WED_ATCFlow * flow, validation_error_vector& msgs
 
 		int wrapped_end_zulu = timeData.start_zulu < timeData.end_zulu ? timeData.end_zulu : timeData.end_zulu + 2400;
 		if(wrapped_end_zulu - timeData.start_zulu < 100)
-			msgs.push_back(validation_error_t("ATC time rule specifies suspicious short duration.", warn_atc_flow_short_time, trule, apt));
+			msgs.push_back(validation_error_t("ATC time rule specifies implausible short duration.", warn_atc_flow_short_time, trule, apt));
 	}
 	
 	if(isActive24_7 && exp.visibility_sm < 0.1 && exp.ceiling_ft == 0)    // only consider winds covered from now on if its a no vis/time condition flow. May cause a few false tailwind warnings 
@@ -1052,11 +1052,11 @@ static void ValidateOneATCFlow(WED_ATCFlow * flow, validation_error_vector& msgs
 				maxTailwind	= max(maxTailwind, -sWindThisFlow[i] * cos(relTailWindAngle * DEG_TO_RAD));
 			}
 			// if this is a propper "catch all" last flow, it should have no wind rules at all defined, so maxTailwind is still zero here.
-			if(maxTailwind > 10.0)
+			if(maxTailwind > (u->HasArrivals() ? 10.0 : 15.0))   // allow a bit more tailwind for departure only runways, helps noise abatement one-way flows
 			{
 					string txt("Wind Rules in flow '");
 					txt += name + "' allow Runway " + ENUM_Desc(rwy);
-					txt += " to be used with up to " + to_string((int) maxTailwind) + " kts tailwind component @ " + to_string(ATC_FLOW_MAX_WIND) + " kts winds";
+					txt += " to be used with up to " + to_string(intround(maxTailwind)) + " kts tailwind component @ " + to_string(ATC_FLOW_MAX_WIND) + " kts winds";
 					msgs.push_back(validation_error_t(txt, warn_atc_flow_excessive_tailwind, u, apt));
 			}
 		}
@@ -1111,8 +1111,9 @@ static void ValidateATC(WED_Airport* apt, validation_error_vector& msgs, set<int
 	}
 	
 	int uncovSpd = ATC_FLOW_MAX_WIND;
-	for(int i = 0; i < 360; i++)
-		uncovSpd = min(uncovSpd, covSurfWinds[i]);
+	if(!flows.empty())
+		for(int i = 0; i < 360; i++)
+			uncovSpd = min(uncovSpd, covSurfWinds[i]);
 	
 	if(uncovSpd < ATC_FLOW_MAX_WIND)
 	{
@@ -1282,7 +1283,7 @@ static void ValidateOneRampPosition(WED_RampPosition* ramp, validation_error_vec
 						}
 						else
 						{
-							msgs.push_back(validation_error_t(string("Ramp start airlines string '") + orig_airlines_str + "' contains non-lowercase letters.", err_ramp_airlines_contains_non_lowercase_letters, ramp, apt));
+							msgs.push_back(validation_error_t(string("Ramp start airlines string '") + orig_airlines_str + "' may contains only lowercase ASCII letters.", err_ramp_airlines_contains_non_lowercase_letters, ramp, apt));
 							break;
 						}
 					}
@@ -1434,9 +1435,9 @@ static void ValidateOneRunwayOrSealane(WED_Thing* who, validation_error_vector& 
 		WED_Runway * rwy = dynamic_cast<WED_Runway *>(who);
 		if (rwy)
 		{
-			if(rwy->GetSurface() == surf_Water && gExportTarget == wet_gateway)
+			if((rwy->GetSurface() == surf_Trans || rwy->GetSurface() == surf_Water) && gExportTarget == wet_gateway)
 			{
-				msgs.push_back(validation_error_t("Water is not a valid surface type for runways.", err_rwy_surface_water_not_valid, who,apt));
+				msgs.push_back(validation_error_t("Water or transparent are no valid surface types for runways.", err_rwy_surface_water_not_valid, who,apt));
 			}
 
 			if (rwy->GetDisp1() + rwy->GetDisp2() > rwy->GetLength()) msgs.push_back(validation_error_t(string("The runway/sealane '") + name + "' has overlapping displaced thresholds.", err_rwy_overlapping_displaced_thresholds, who,apt));
@@ -1691,14 +1692,11 @@ static void ValidateAirportMetadata(WED_Airport* who, validation_error_vector& m
 			}
 			if(is_a_number(datum_lon) && is_a_number(datum_lat))
 			{
-				Point2 apt_datum;
 				Bbox2 apt_bounds;
 				apt->GetBounds(gis_Geo, apt_bounds);
-
-				istringstream iss_lon (datum_lon);
-				istringstream iss_lat (datum_lat);
-				iss_lon >> apt_datum.x_;
-				iss_lat >> apt_datum.y_;
+				apt_bounds.expand(1.0/60.0 / cos(apt_bounds.centroid().y() * DEG_TO_RAD), 1.0/60.0);
+				
+				Point2 apt_datum(stod(datum_lon), stod(datum_lat));
 
 				if(apt_bounds.contains(apt_datum))
 				{
@@ -1708,10 +1706,10 @@ static void ValidateAirportMetadata(WED_Airport* who, validation_error_vector& m
 				{
 					if(apt_datum.x() < apt_bounds.xmin() || apt_datum.x() > apt_bounds.xmax())
 						add_formated_metadata_error(error_template, wed_AddMetaDataDatumLon,
-						"Coordinates not within the airport's area. Delete both datum meta tags.", who, msgs, apt);
+						"Coordinate not within 1 nm of the airport.", who, msgs, apt);
 					if(apt_datum.y() < apt_bounds.ymin() || apt_datum.y() > apt_bounds.ymax())
 						add_formated_metadata_error(error_template, wed_AddMetaDataDatumLat,
-						"Coordinates not within the airport's area. Delete both datum meta tags.", who, msgs, apt);
+						"Coordinate not within 1 nm of the airport.", who, msgs, apt);
 				}
 			}
 		}
@@ -2174,7 +2172,7 @@ static void ValidateOneAirport(WED_Airport* apt, validation_error_vector& msgs, 
 	}
 
 	#if !GATEWAY_IMPORT_FEATURES
-	WED_DoATCRunwayChecks(*apt, msgs);
+	WED_DoATCRunwayChecks(*apt, msgs, res_mgr);
 	#endif
 
 	ValidateATC(apt, msgs, legal_rwy_oneway, legal_rwy_twoway);
