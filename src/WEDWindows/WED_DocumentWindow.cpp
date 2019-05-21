@@ -23,10 +23,7 @@
 
 #include "WED_DocumentWindow.h"
 #include "WED_Document.h"
-//#include "WED_Progress.h"
-//#include "XESIO.h"
 #include "AptIO.h"
-//#include "MapAlgs.h"
 #include "WED_Messages.h"
 #include "GUI_Menus.h"
 #include "WED_UndoMgr.h"
@@ -43,6 +40,7 @@
 #include "GUI_Splitter.h"
 #include "WED_GroupCommands.h"
 #include "WED_SceneryPackExport.h"
+#include "WED_Version.h"
 
 #include "WED_MetadataUpdate.h"
 #include "WED_GatewayExport.h"
@@ -54,7 +52,6 @@
 #include "WED_LibraryPane.h"
 #include "WED_LibraryPreviewPane.h"
 #include "WED_LinePlacement.h"
-//#include "WED_Orthophoto.h"
 #include "WED_PolygonPlacement.h"
 #include "WED_Routing.h"
 #include "WED_Taxiway.h"
@@ -301,6 +298,15 @@ WED_DocumentWindow::WED_DocumentWindow(
 	mPropPane->FromPrefs(inDocument,0);
 	// doc/use_feet and doc/InfoDMS are global only preferences now, not read from each document any more
 	gExportTarget = (WED_Export_Target) inDocument->ReadIntPref("doc/export_target",gExportTarget);
+	
+	int wedXMLversion = inDocument->ReadIntPref("doc/xml_compatibility",0);
+	int wedTHISversion[4] = { WED_VERSION_BIN };
+	if(wedTHISversion[0] * 100 + wedTHISversion[1] < wedXMLversion)
+	{
+		string msg("Warning: This earth.wed.xml was written by a newer version of WED, some content may get corrupted or may make this version crash.\nUse WED ");
+		msg += to_string(wedXMLversion / 100) + "." + to_string(wedXMLversion % 100) + " or newer to read or edit this file.";
+		DoUserAlert(msg.c_str());
+	}
 
 	//#if DEV
 	//	PrintDebugInfo(0);
@@ -353,10 +359,8 @@ int	WED_DocumentWindow::HandleCommand(int command)
 	case gui_Clear:		WED_DoClear(mDocument); return 1;
 	case wed_Crop:		WED_DoCrop(mDocument); return 1;
 	//case wed_Overlay:	WED_MakeOrthos(mDocument); return 1;
-#if AIRPORT_ROUTING
 //	case wed_MakeRouting:WED_MakeRouting(mDocument); return 1;
 	case wed_Merge:		WED_DoMerge(mDocument); return 1;
-#endif
 	case wed_Split:		WED_DoSplit(mDocument); return 1;
 	case wed_Align:		WED_DoAlign(mDocument); return 1;
 	case wed_MatchBezierHandles:	WED_DoMatchBezierHandles(mDocument); return 1;
@@ -379,12 +383,10 @@ int	WED_DocumentWindow::HandleCommand(int command)
 	case wed_BreakApartSpecialAgps: WED_DoBreakApartSpecialAgps(mDocument); return 1;
 	case wed_ReplaceVehicleObj:  WED_DoReplaceVehicleObj(mDocument); return 1;
 	case wed_AddATCFreq:WED_DoMakeNewATCFreq(mDocument); return 1;
-#if AIRPORT_ROUTING
 	case wed_AddATCFlow: WED_DoMakeNewATCFlow(mDocument); return 1;
 	case wed_AddATCRunwayUse:WED_DoMakeNewATCRunwayUse(mDocument); return 1;
 	case wed_AddATCTimeRule: WED_DoMakeNewATCTimeRule(mDocument); return 1;
 	case wed_AddATCWindRule: WED_DoMakeNewATCWindRule(mDocument); return 1;
-#endif
 	case wed_UpgradeRamps:	WED_UpgradeRampStarts(mDocument);	return 1;
 	case wed_AlignApt:	WED_AlignAirports(mDocument);	return 1;
 	case wed_CreateApt:	WED_DoMakeNewAirport(mDocument); return 1;
@@ -402,7 +404,6 @@ int	WED_DocumentWindow::HandleCommand(int command)
 	case wed_SelectPoly:	WED_DoSelectPolygon(mDocument);	return 1;
 	case wed_SelectConnected:WED_DoSelectConnected(mDocument);	return 1;
 
-#if AIRPORT_ROUTING
 	case wed_SelectZeroLength:	if(!WED_DoSelectZeroLength(mDocument))		DoUserAlert("Your project has no zero-length ATC routing lines.");	return 1;
 	case wed_SelectDoubles:		if(!WED_DoSelectDoubles(mDocument))			DoUserAlert("Your project has no doubled ATC routing nodes.");	return 1;
 	case wed_SelectCrossing:	if(!WED_DoSelectCrossing(mDocument))		DoUserAlert("Your project has no crossed ATC routing lines.");	return 1;
@@ -412,7 +413,7 @@ int	WED_DocumentWindow::HandleCommand(int command)
 	case wed_SelectDefaultObjects:		WED_DoSelectDefaultObjects(mDocument); return 1;
 	case wed_SelectThirdPartyObjects:	WED_DoSelectThirdPartyObjects(mDocument); return 1;
 	case wed_SelectMissingObjects:		WED_DoSelectMissingObjects(mDocument); return 1;
-#endif
+
 	case wed_UpdateMetadata:     WED_DoUpdateMetadata(mDocument); return 1;
 	case wed_ExportApt:		WED_DoExportApt(mDocument, mMapPane); return 1;
 	case wed_ExportPack:	WED_DoExportPack(mDocument, mMapPane); return 1;
@@ -476,10 +477,8 @@ int	WED_DocumentWindow::CanHandleCommand(int command, string& ioName, int& ioChe
 						else				{								return 0; }
 	case gui_Clear:		return	WED_CanClear(mDocument);
 	case wed_Crop:		return	WED_CanCrop(mDocument);
-#if AIRPORT_ROUTING
 //	case wed_MakeRouting:
 	case wed_Merge:		return WED_CanMerge(mDocument);
-#endif
 	case wed_Overlay:														return 1;
 	case gui_Close:															return 1;
 	case wed_Split:		return WED_CanSplit(mDocument);
@@ -498,7 +497,6 @@ int	WED_DocumentWindow::CanHandleCommand(int command, string& ioName, int& ioChe
 	case wed_ConvertToTaxiline:	return WED_CanConvertTo(mDocument, &IsType<WED_AirportChain>, false);
 	case wed_ConvertToLine:		return WED_CanConvertTo(mDocument, &IsType<WED_LinePlacement>, false);
 	case wed_AddATCFreq:return WED_CanMakeNewATCFreq(mDocument);
-#if AIRPORT_ROUTING
 	case wed_AddATCFlow:return WED_CanMakeNewATCFlow(mDocument);
 	case wed_AddATCRunwayUse:return WED_CanMakeNewATCRunwayUse(mDocument);
 	case wed_AddATCTimeRule: return WED_CanMakeNewATCTimeRule(mDocument);
@@ -506,7 +504,6 @@ int	WED_DocumentWindow::CanHandleCommand(int command, string& ioName, int& ioChe
 	case wed_UpgradeRamps:   return 1;
 	case wed_AlignApt:      return 1;
 
-#endif
 	case wed_CreateApt:	return WED_CanMakeNewAirport(mDocument);
 	case wed_EditApt:	return WED_CanSetCurrentAirport(mDocument, ioName);
 	case wed_UpdateMetadata:     return WED_CanUpdateMetadata(mDocument);
@@ -527,7 +524,6 @@ int	WED_DocumentWindow::CanHandleCommand(int command, string& ioName, int& ioChe
 	case wed_SelectPoly:	return WED_CanSelectPolygon(mDocument);
 	case wed_SelectConnected:	return WED_CanSelectConnected(mDocument);
 
-#if AIRPORT_ROUTING
 	case wed_SelectZeroLength:
 	case wed_SelectDoubles:
 	case wed_SelectCrossing:
@@ -536,7 +532,6 @@ int	WED_DocumentWindow::CanHandleCommand(int command, string& ioName, int& ioChe
 	case wed_SelectDefaultObjects:
 	case wed_SelectThirdPartyObjects:
 	case wed_SelectMissingObjects:	return 1;
-#endif
 
 	case wed_ExportApt:		return WED_CanExportApt(mDocument);
 	case wed_ExportPack:	return WED_CanExportPack(mDocument);
@@ -591,6 +586,8 @@ void	WED_DocumentWindow::ReceiveMessage(
 
 		// not writing doc/use_feet any more. Its a global preference now.
 		prefs->WriteIntPref("doc/export_target",gExportTarget);
+		prefs->WriteIntPref("doc/xml_compatibility",107);     // minimum WED version expected to read this .xml correctly - 1.7 added new airport line marking styles
+		                                                      // 8.33k freqs added in 2.0 are fine back to at least 1.5, saved with 3 decimal places ever since
 		prefs->WriteIntPref("window/main_split",mMainSplitter->GetSplitPoint());
 		prefs->WriteIntPref("window/main_split2",mMainSplitter2->GetSplitPoint());
 		prefs->WriteIntPref("window/prop_split",mPropSplitter->GetSplitPoint());

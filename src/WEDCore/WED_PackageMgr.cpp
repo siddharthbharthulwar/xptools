@@ -93,7 +93,7 @@ static void analyze_package(const string& abspath, WED_PackageInfo& pkginfo)
 		pkginfo.hasAPT = true;
 }
 
-struct local_scan_t {
+struct package_local_scan_t {
 	string	fullpath;
 	vector<WED_PackageInfo> * who;
 };
@@ -102,7 +102,7 @@ bool		WED_PackageMgr::AccumLibDir(const char * fileName, bool isDir, void * ref)
 {
 	if(isDir && fileName[0] != '.')
 	{
-		local_scan_t * info = reinterpret_cast<local_scan_t *>(ref);
+		package_local_scan_t * info = reinterpret_cast<package_local_scan_t *>(ref);
 		if(info) 
 		{
 			info->who->push_back(fileName);
@@ -125,7 +125,7 @@ bool		WED_PackageMgr::SetXPlaneFolder(const string& root)
 		return false;
 	
 	system_path = root;
-	Rescan();
+	Rescan(true);
 	return true;
 }
 
@@ -283,25 +283,26 @@ static bool SortPackageList(const WED_PackageInfo& p1, const WED_PackageInfo& p2
 	bool p1_inclAPT = p1.hasXML || p1.hasAPT;
 	bool p2_inclAPT = p2.hasXML || p2.hasAPT;
 	if(p1_inclAPT != p2_inclAPT) return p1_inclAPT;              // packages with any airport come first
-	if(p1.hasAnyItems != p2.hasAnyItems) return p2.hasAnyItems;  // pure Libraries come last
+	if(p1.hasAnyItems != p2.hasAnyItems && !(p1_inclAPT || p2_inclAPT)) return p2.hasAnyItems;  // pure Libraries come last
 	return strcasecmp(p1.name.c_str(), p2.name.c_str()) < 0; 
 }
 
-void		WED_PackageMgr::Rescan(void)
+void		WED_PackageMgr::Rescan(bool alwaysBroadcast)
 {
-	custom_packages.clear();
-	global_packages.clear();
-	default_packages.clear();
-	
+
+	bool pkg_list_changed = alwaysBroadcast;
 	system_exists=false;
 	if (MF_GetFileType(system_path.c_str(),mf_CheckType) == mf_Directory)
 	{
 		string cus_dir = system_path + DIR_STR CUSTOM_PACKAGE_PATH;
-		
+
 		if (MF_GetFileType(cus_dir.c_str(),mf_CheckType) == mf_Directory)
 		{
+			vector<WED_PackageInfo> old_cust_packages;
+			old_cust_packages.swap(custom_packages);
+
 			system_exists=true;
-			local_scan_t info;
+			package_local_scan_t info;
 			info.fullpath = cus_dir;
 			info.who = &custom_packages;
 			MF_IterateDirectory(cus_dir.c_str(), AccumLibDir, (void*) &info);
@@ -336,22 +337,48 @@ void		WED_PackageMgr::Rescan(void)
 			}
 
 			sort(custom_packages.begin(),custom_packages.end(),SortPackageList);
+
+			if(old_cust_packages.size() == custom_packages.size())
+			{
+				auto  o = old_cust_packages.begin();
+				for(auto n : custom_packages)
+				{
+					if(o->name != n.name) pkg_list_changed = true;
+					else
+					{
+						if(o->isDisabled != n.isDisabled) pkg_list_changed = true;
+						if(o->hasAnyItems != o->hasAnyItems) pkg_list_changed = true;
+					}
+					o++;
+				}
+			}
+			else
+				pkg_list_changed = true;
+
+			if(!pkg_list_changed) custom_packages.swap(old_cust_packages);
 		}
 
-		string glb_dir = system_path + DIR_STR GLOBAL_PACKAGE_PATH;
-		if (MF_GetFileType(glb_dir.c_str(),mf_CheckType) == mf_Directory)
+		if(pkg_list_changed)
 		{
-			system_exists=true;
-			MF_IterateDirectory(glb_dir.c_str(), AccumAnyDir, &global_packages);
-			sort(global_packages.begin(),global_packages.end(),SortPackageList);
-		}
+			string glb_dir = system_path + DIR_STR GLOBAL_PACKAGE_PATH;
+			global_packages.clear();
+			if (MF_GetFileType(glb_dir.c_str(),mf_CheckType) == mf_Directory)
+			{
+				system_exists=true;
+				MF_IterateDirectory(glb_dir.c_str(), AccumAnyDir, &global_packages);
+				sort(global_packages.begin(),global_packages.end(),SortPackageList);
+			}
 
-		string def_dir = system_path + DIR_STR DEFAULT_PACKAGE_PATH;
-		if (MF_GetFileType(def_dir.c_str(),mf_CheckType) == mf_Directory)
-		{
-			system_exists=true;
-			MF_IterateDirectory(def_dir.c_str(), AccumAnyDir, &default_packages);
-			sort(default_packages.begin(),default_packages.end(),SortPackageList);
+			string def_dir = system_path + DIR_STR DEFAULT_PACKAGE_PATH;
+			default_packages.clear();
+			if (MF_GetFileType(def_dir.c_str(),mf_CheckType) == mf_Directory)
+			{
+				system_exists=true;
+				MF_IterateDirectory(def_dir.c_str(), AccumAnyDir, &default_packages);
+				sort(default_packages.begin(),default_packages.end(),SortPackageList);
+			}
+
+			BroadcastMessage(msg_SystemFolderChanged,0);
 		}
 	}
 
@@ -369,8 +396,6 @@ void		WED_PackageMgr::Rescan(void)
 			XPversion = v;
 		}
 	}
-
-	BroadcastMessage(msg_SystemFolderChanged,0);
 }
 
 string		WED_PackageMgr::ComputePath(const string& package, const string& rel_file) const

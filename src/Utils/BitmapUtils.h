@@ -96,14 +96,6 @@ int		CreateBitmapFromTIF(const char * inFilePath, struct ImageInfo * outImageInf
 
 #endif
 
-#if USE_GEOJPEG2K
-//Creates a bit map from a GeoJPEG2K, requires GeoJASPER
-//-1 means bad jas_init(), -2 means bad format ID, -3 means bad image. 0 means good, relates to #channels
-int CreateBitmapFromJP2K(const char * inFilePath, struct ImageInfo * outImageInfo);
-
-#endif
-
-
 
 /* Given an imageInfo structure, this routine writes it to disk as a .bmp file.
  * Note that only 3-channel bitmaps may be written as .bmp files!! 
@@ -115,11 +107,14 @@ int		WriteBitmapToFile(const struct ImageInfo * inImage, const char * inFilePath
 /* Given an imageInfo structure, this routine writes it to disk as a .png file.  Image is tagged with gamma, or 0.0f to leave untagged. */
 int		WriteBitmapToPNG(const struct ImageInfo * inImage, const char * inFilePath, char * inPalette, int inPaletteLen, float gamma);
 
-/* This routine writes a 3 or 4 channel bitmap as a mip-mapped DXT1 or DXT3 image.
+/* This routine writes a 4 channel bitmap as a mip-mapped DXT1, DXT3 or DXT5 image.
  * NOTE: if you compile with PHONE then DDS are written upside down (lower left origin
  * instead of upper-left).  This is an optimization for the iphone, which can then
  * pass the data DIRECTLY to OpenGL. */
 int	WriteBitmapToDDS(struct ImageInfo& ioImage, int dxt, const char * file_name, int use_win_gamma);
+
+// same, but multi-threaded compression and gamma corrected mipmap generation is done within
+int	WriteBitmapToDDS_MT(struct ImageInfo& ioImage, int dxt, const char * file_name);
 
 /* This routine writes a 3 or 4 channel bitmap as a mip-mapped DXT1 or DXT3 image. */
 int	WriteUncompressedToDDS(struct ImageInfo& ioImage, const char * file_name, int use_win_gamma);
