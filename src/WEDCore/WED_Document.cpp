@@ -58,6 +58,9 @@
 // TODO:
 // migrate all old stuff
 // wire dirty to obj persistence
+#if DEV
+#include "PerfUtils.h"
+#endif
 
 #include "WED_Globals.h"
 int gIsFeet;
@@ -65,6 +68,7 @@ int gInfoDMS;
 int gModeratorMode;
 int gFontSize;
 string gCustomSlippyMap;
+int gOrthoExport;
 
 static set<WED_Document *> sDocuments;
 static map<string,string>	sGlobalPrefs;
@@ -238,6 +242,9 @@ void	WED_Document::Save(void)
 		//If everything else has worked
 	if(ferrorErr == 0)
 	{
+#if DEV
+		StElapsedTime	etime("Save time");
+#endif
 		WriteXML(xml_file);
 	}
 	int fcloseErr = fclose(xml_file);
@@ -297,7 +304,9 @@ void	WED_Document::Revert(void)
 	mUndo.__StartCommand("Revert from Saved.",__FILE__,__LINE__);
 
 	try {
-
+#if DEV
+		StElapsedTime	etime("Read time");
+#endif
 		WED_XMLReader	reader;
 		reader.PushHandler(this);
 		string fname(mFilePath);
@@ -571,6 +580,7 @@ void	WED_Document::ReadGlobalPrefs(void)
 	int FontSize = atoi(GUI_GetPrefString("preferences","FontSize","12"));
 	gFontSize = intlim(FontSize, 10, 18);
 	GUI_SetFontSizes(gFontSize);
+	gOrthoExport = atoi(GUI_GetPrefString("preferences","OrthoExport","1"));
 }
 
 void	WED_Document::WriteGlobalPrefs(void)
@@ -580,6 +590,7 @@ void	WED_Document::WriteGlobalPrefs(void)
 	GUI_SetPrefString("preferences","CustomSlippyMap",gCustomSlippyMap.c_str());
 	string FontSize(to_string(gFontSize));
 	GUI_SetPrefString("preferences","FontSize",FontSize.c_str());
+	GUI_SetPrefString("preferences","OrthoExport",gOrthoExport ? "1" : "0");
 	
 	for (map<string,string>::iterator i = sGlobalPrefs.begin(); i != sGlobalPrefs.end(); ++i)
 		GUI_SetPrefString("doc_prefs", i->first.c_str(), i->second.c_str());
@@ -592,28 +603,27 @@ void		WED_Document::StartElement(
 {
 	const char * n = NULL, * v = NULL;
 
-	if(strcasecmp(name,"objects")==0)
+	if(strcmp(name,"objects")==0)
 	{
-
 		reader->PushHandler(&mArchive);
 	}
-	if(strcasecmp(name,"prefs")==0)
+	if(strcmp(name,"prefs")==0)
 	{
 		mDocPrefs.clear();
 		mDocPrefsItems.clear();
 		mDocPrefsActName = "";
 	}
-	else if(strcasecmp(name,"pref")==0)
+	else if(strcmp(name,"pref")==0)
 	{
 		while(*atts)
 		{
-			if(strcasecmp(*atts, "name")==0)
+			if(strcmp(*atts, "name")==0)
 			{
 				++atts;
 				n = *atts;
 				++atts;
 			}
-			else if(strcasecmp(*atts,"value")==0)
+			else if(strcmp(*atts,"value")==0)
 			{
 				++atts;
 				v = *atts;
@@ -636,11 +646,11 @@ void		WED_Document::StartElement(
 		else
 			reader->FailWithError("Invalid pref: missing key or value.");
 	}
-	else if(strcasecmp(name,"item")==0)
+	else if(strcmp(name,"item")==0)
 	{
         while(*atts)
 		{
-			if(strcasecmp(*atts,"value")==0)
+			if(strcmp(*atts,"value")==0)
 			{
 				++atts;
 				v = *atts;

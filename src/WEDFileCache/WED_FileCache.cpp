@@ -3,7 +3,9 @@
 
 #if DEV
 #include <iostream>
+#include "PerfUtils.h"
 #define SAVE_TO_DISK 1
+#define KEEP_EXPIRED_CACHE_FILES 0
 #else
 #define SAVE_TO_DISK 1
 #endif
@@ -82,6 +84,9 @@ bool WED_file_cache_response::operator!=(const WED_file_cache_response& rhs) con
 
 void WED_FileCache::init(void)
 {
+#if DEV
+	StElapsedTime	etime("Cache init time");
+#endif
 	//Get the cache folder path
 	{
 		CACHE_folder = GetCacheFolder();
@@ -96,13 +101,15 @@ void WED_FileCache::init(void)
 
 	vector<string> files;
 	vector<string> dirs;
+#if KEEP_EXPIRED_CACHE_FILES
+	vector<int> files_to_delete;
+	int dirs_to_delete = 0;
+#endif
 
 	if(FILE_get_directory_recursive(CACHE_folder, files, dirs) > 0)
 	{
 		sort(files.begin(), files.end(), less<string>());
-
 		vector<pair<int,int> > paired_files;  // Where pair is <file,file.cache_object_info>
-		vector<int> files_to_delete;
 
 		int i = 0;
 		while(i < files.size())
@@ -116,7 +123,11 @@ void WED_FileCache::init(void)
 			//If we only have 1 file remaining to inspect
 			if((i + 1) >= files.size())
 			{
+#if KEEP_EXPIRED_CACHE_FILES
+				files_to_delete.push_back(i);
+#else
 				FILE_delete_file(files[i].c_str(), false);
+#endif
 				break;
 			}
 
@@ -129,7 +140,11 @@ void WED_FileCache::init(void)
 
 			if(!(actual_file_name_B == required_file_name_B))
 			{
+#if KEEP_EXPIRED_CACHE_FILES
+				files_to_delete.push_back(i);
+#else
 				FILE_delete_file(files[i].c_str(), false);
+#endif
 				i += 1;
 			}
 			else
@@ -142,14 +157,14 @@ void WED_FileCache::init(void)
 
 		time_t now = time(NULL);
 
-		for (int i = 0; i < paired_files.size(); ++i)
+		for (auto p : paired_files)
 		{
 			CACHE_file_cache.push_back(new CACHE_CacheObject());
 
 			bool info_read_success = false;
 
 			string content;
-			int file_content_read = FILE_read_file_to_string(files[paired_files[i].second], content);
+			int file_content_read = FILE_read_file_to_string(files[p.second], content);
 
 			if(file_content_read == 0)
 			{
@@ -162,7 +177,7 @@ void WED_FileCache::init(void)
 				{
 					CACHE_file_cache.back()->m_last_time_modified = root["last_time_modified"].asInt();
 					CACHE_file_cache.back()->m_domain = static_cast<CACHE_domain>(root["domain"].asInt());
-					CACHE_file_cache.back()->set_disk_location(files[paired_files[i].first]);
+					CACHE_file_cache.back()->set_disk_location(files[p.first]);
 
 					time_t age = difftime(now,CACHE_file_cache.back()->m_last_time_modified);
 
@@ -175,11 +190,42 @@ void WED_FileCache::init(void)
 			{
 				delete CACHE_file_cache.back();
 				CACHE_file_cache.pop_back();
-
-				FILE_delete_file(files[paired_files[i].first].c_str(), false);
-				FILE_delete_file(files[paired_files[i+1].second].c_str(), false);
+#if KEEP_EXPIRED_CACHE_FILES
+				files_to_delete.push_back(p.first);
+				files_to_delete.push_back(p.second);
+#else
+				FILE_delete_file(files[p.first].c_str(), false);
+				FILE_delete_file(files[p.second].c_str(), false);
+#endif
 			}
 		}
+		
+		// now find empty directories and delete those, too
+		
+		for(auto d : dirs)
+		{
+			vector<string> files_dummy, dirs_dummy;
+			int num_files = FILE_get_directory_recursive(d, files_dummy, dirs_dummy);
+			
+			if (num_files >= 0 && files_dummy.size() == 0)
+			{
+#if KEEP_EXPIRED_CACHE_FILES
+				printf("Empty directory trees %s num_files %d files %ld dirs %ld\n",d.c_str(), num_files, files_dummy.size(), dirs_dummy.size());
+				dirs_to_delete++;
+#else
+				FILE_delete_dir_recursive(d.c_str());
+#endif
+			}
+		}
+
+#if KEEP_EXPIRED_CACHE_FILES
+//		for(auto f : files )		printf("Files %s\n",f.c_str());
+//		for(auto f : dirs )		printf("Dirs %s\n",f.c_str());
+//		for(auto f : files_to_delete ) printf("Cache cleanup would delete %s\n",files[f].c_str());
+			
+		printf("Cached files %ld, to be deleted %ld\n",files.size(), files_to_delete.size());
+		printf("Cached dirs %ld, empty & to be deleted %d\n",dirs.size(), dirs_to_delete);
+#endif
 	}
 }
 

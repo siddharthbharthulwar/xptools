@@ -367,7 +367,7 @@ struct	preview_runway : public WED_PreviewItem {
 			g->SetState(false,0,false, true,true, false,false);
 		}
 		double z = zoomer->GetPPM();
-//		if (0 z > 0.3)                     // draw some well know sign and light positions
+		if (z > 0.2)                     // draw some well know sign and light positions
 		{
 			AptRunway_t info;
 			rwy->Export(info);
@@ -409,32 +409,33 @@ struct	preview_runway : public WED_PreviewItem {
 						if(info.app_light_code[dir] == apt_app_ALSFI || info.app_light_code[dir] == apt_app_ALSFII)
 							spacing = 100*FT_TO_MTR;
 					}
-					Point2 lpos = Segment2(corners[3-2*dir],corners[2*dir]).midpoint(0.5);
-					Vector2 direction(corners[1+2*dir], corners[2*dir]);
-					direction.normalize();
-					Vector2 offset = direction.perpendicular_ccw() * z * 8.0;
-					direction *= z * spacing;
+					Point2 rwy_end = Segment2(corners[3-2*dir],corners[2*dir]).midpoint(0.5);  // runway end position
+					Vector2 rwy_dir(corners[1+2*dir], corners[2*dir]);
+					rwy_dir.normalize();
+					Point2 lpos = rwy_end - rwy_dir * z * info.disp_mtr[dir];           // appr lights start position is at threshold
+					Vector2 rbar_dir = rwy_dir.perpendicular_ccw();
+					rbar_dir *= z * 8.0;   						                             // 8.0m spacing of roll bar lights
+					Vector2 vec_lgts = rwy_dir * z * spacing;
 					int num_lgts = length / spacing;
-					double sign_hdg = RAD_TO_DEG * atan2(direction.x(),direction.y());
+					double sign_hdg = RAD_TO_DEG * atan2(rwy_dir.x(),rwy_dir.y());
 
 					if(info.app_light_code[dir] <= apt_app_MALS)    // 1000' roll bar
 					{
-						Vector2 dir2(direction);
-						dir2.normalize();
+						Vector2 dir2(rwy_dir);
 						dir2 *= z * 1000*FT_TO_MTR;
 						Point2 rollbar = lpos + dir2;
 
-						rollbar -= offset * 2;
+						rollbar -= rbar_dir * 2;
 						for(int n = 0; n < 5; n++)
 						{
 							if(n != 2)
 								GUI_PlotIcon(g,"map_light.png",rollbar.x(),rollbar.y(),sign_hdg, max(0.3, z * 0.05));
-							rollbar += offset;
+							rollbar += rbar_dir;
 						}
 					}
 					for(int n = 0; n < num_lgts; n++)
 					{
-						lpos += direction;
+						lpos += vec_lgts;
 						GUI_PlotIcon(g,"map_light.png",lpos.x(),lpos.y(),sign_hdg, max(0.3, z * 0.05));
 					}
 				}
@@ -563,19 +564,27 @@ static void draw_line_preview(const vector<Point2>& pts, const lin_info_t& linfo
 	double offset     = ((linfo.s2[l]+linfo.s1[l]) / 2.0 - linfo.sm[l]) * linfo.scale_s * PPM;
 	double uv_dt      =  (linfo.s2[l]-linfo.s1[l]) / 2.0 * linfo.scale_s / linfo.scale_t; // correction factor for 'slanted' texture ends
 	double uv_t2      = 0.0;                                                              // accumulator for texture t, so each starts where the previous ended
+	bool is_ring = pts.front() == pts.back();
 
 	Vector2	dir2(pts[1],pts[0]);
 	dir2.normalize();
-	dir2 = dir2.perpendicular_ccw();
+	if(is_ring)
+	{
+		Vector2 dir_last(pts[0],pts[pts.size()-2]);
+		dir_last.normalize();
+		dir2 = (dir2 + dir_last) / (1.0 + dir_last.dot(dir2));
+	}
+	dir2 = dir2.perpendicular_ccw();   // direction perpendicular to previous segment
 
 	for (int j = 0; j < pts.size()-1; ++j)
 	{
 		Vector2	dir1(dir2);
 		Vector2 dir = Vector2(pts[j+1],pts[j]);
-		dir.normalize();
-		if(j < pts.size()-2)
+		dir.normalize();                    // direction of this segment
+		if(j < pts.size()-2+is_ring)
 		{
-			Vector2 dir3(pts[j+2],pts[j+1]);
+			int n = j < pts.size()-2 ? j+2 : 1;
+			Vector2 dir3(pts[n],pts[j+1]);
 			dir3.normalize();
 			dir2 = (dir + dir3) / (1.0 + dir.dot(dir3));
 		}
@@ -586,12 +595,49 @@ static void draw_line_preview(const vector<Point2>& pts, const lin_info_t& linfo
 		uv_t2 += sqrt(Vector2(pts[j+1], pts[j]).squared_length()) / PPM / linfo.scale_t;
 		double d1 = uv_dt * dir.dot(dir1);
 		double d2 = uv_dt * dir.dot(dir2);
-
+		
+		Point2 start_left (pts[j]   + dir1 * (offset - half_width));
+		Point2 start_right(pts[j]   + dir1 * (offset + half_width));
+		Point2 end_left   (pts[j+1] + dir2 * (offset - half_width));
+		Point2 end_right  (pts[j+1] + dir2 * (offset + half_width));
+		
+		if(!is_ring)
+		{
+			if(j == 0 && linfo.start_caps.size() > l)
+			{
+				double len = (linfo.start_caps[l].t2 - linfo.start_caps[l].t1) * linfo.scale_t;
+				glBegin(GL_QUADS);
+					glTexCoord2f(linfo.start_caps[l].s1,linfo.start_caps[l].t1); glVertex2(start_left);
+					glTexCoord2f(linfo.start_caps[l].s2,linfo.start_caps[l].t1); glVertex2(start_right);
+					start_left  -= dir * len * PPM;
+					start_right -= dir * len * PPM;
+					uv_t2 -= (linfo.start_caps[l].t2 - linfo.start_caps[l].t1);
+					glTexCoord2f(linfo.start_caps[l].s2,linfo.start_caps[l].t2); glVertex2(start_right);
+					glTexCoord2f(linfo.start_caps[l].s1,linfo.start_caps[l].t2); glVertex2(start_left);
+				glEnd();
+			}
+			if(j == pts.size()-2 && linfo.end_caps.size() > l)
+			{
+				double len = (linfo.end_caps[l].t2 - linfo.end_caps[l].t1) * linfo.scale_t;
+				glBegin(GL_QUADS);
+					glTexCoord2f(linfo.end_caps[l].s2,linfo.end_caps[l].t2); glVertex2(end_right);
+					glTexCoord2f(linfo.end_caps[l].s1,linfo.end_caps[l].t2); glVertex2(end_left);
+					end_left  += dir * len * PPM;
+					end_right += dir * len * PPM;
+					uv_t2 -= (linfo.end_caps[l].t2 - linfo.end_caps[l].t1);
+					glTexCoord2f(linfo.end_caps[l].s1,linfo.end_caps[l].t1); glVertex2(end_left);
+					glTexCoord2f(linfo.end_caps[l].s2,linfo.end_caps[l].t1); glVertex2(end_right);
+				glEnd();
+			}
+		}
+		
+		if(j == pts.size()-2 && linfo.align > 0) uv_t2 = round_by_parts(uv_t2, linfo.align);
+		
 		glBegin(GL_QUADS);
-			glTexCoord2f(linfo.s1[l],uv_t2 + d2); glVertex2(pts[j+1] + dir2 * (offset - half_width));
-			glTexCoord2f(linfo.s1[l],uv_t1 + d1); glVertex2(pts[j]   + dir1 * (offset - half_width));
-			glTexCoord2f(linfo.s2[l],uv_t1 - d1); glVertex2(pts[j]   + dir1 * (offset + half_width));
-			glTexCoord2f(linfo.s2[l],uv_t2 - d2); glVertex2(pts[j+1] + dir2 * (offset + half_width));
+			glTexCoord2f(linfo.s1[l],uv_t1 + d1); glVertex2(start_left);
+			glTexCoord2f(linfo.s2[l],uv_t1 - d1); glVertex2(start_right);
+			glTexCoord2f(linfo.s2[l],uv_t2 - d2); glVertex2(end_right);
+			glTexCoord2f(linfo.s1[l],uv_t2 + d2); glVertex2(end_left);
 		glEnd();
 	}
 }
@@ -734,7 +780,7 @@ struct	preview_string : WED_PreviewItem {
 					glColor3f(1,1,1);
 		
 					double ds = str->GetSpacing();
-					double d0 = 0.0;
+					double d0 = ds * 0.5;
 					
 					for(int i = 0; i < ps->GetNumSides(); ++i)
 					{
@@ -875,7 +921,7 @@ struct	preview_airportlights : WED_PreviewItem {
 				double ds = 8.0;                     // default spacing, e.g. taxiline center lights
 				if(t == apt_light_taxi_edge || t == apt_light_bounary) ds = 20.0;          // twy edge lights
 				if(t == apt_light_hold_short || t == apt_light_hold_short_flash) ds = 2.0;  // hold lights
-				double d0 = ds/2.0;
+				double d0 = ds * 0.5;
 				
 				g->SetState(false,1,false,true,true,false,false);
 				glColor3f(1,1,1);
@@ -919,16 +965,10 @@ struct	preview_facade : public preview_polygon {
 	preview_facade(WED_FacadePlacement * f, int l, IResolver * r) : preview_polygon(f,l,false), fac(f), resolver(r) { }
 	virtual void draw_it(WED_MapZoomerNew * zoomer, GUI_GraphState * g, float mPavementAlpha)
 	{
-		g->SetState(false,0,false,true,true,false,false);       // grey fill. Do actual texture instead ??
-		glColor4f(0.7,0.7,0.7,0.75);
-		int t = fac->GetTopoMode();
-//		if(t == WED_FacadePlacement::topo_Area)
-//			preview_polygon::draw_it(zoomer,g,mPavementAlpha);
-
-		const float colors[18] = {  1, 0, 0,	1, 1, 0,
-									0, 1, 0,	0, 1, 1,
-									0, 0, 1,	1, 0, 1,};
+		const float colors[18] = { 1, 0, 0,	 1, 1, 0,  0, 1, 0,    // red, yellow, green
+		                           0, 1, 1,  0, 0, 1,  1, 0, 1,};  // aqua, blue, cyan
 		IGISPointSequence * ps = fac->GetOuterRing();
+		glColor4f(1,1,1,1);
 		
 		if(fac->HasCustomWalls())
 		{
@@ -973,7 +1013,6 @@ struct	preview_facade : public preview_polygon {
 			const fac_info_t * info;
 			WED_ResourceMgr * rmgr = WED_GetResourceMgr(resolver);
 			
-			glColor4f(1,1,1,1);
 			glMatrixMode(GL_MODELVIEW);
 			glPushMatrix();
 			Point2 l = zoomer->LLToPixel(ref_pt);
@@ -991,31 +1030,19 @@ struct	preview_facade : public preview_polygon {
 			g->EnableDepth(false,false);
 			glPopMatrix();
 		}
-
 		
-		if(t == WED_FacadePlacement::topo_Chain)
+		// facade ground contact / 1st segment marker
 		{
 			Point2 p;
-			ps->GetNthPoint(0)->GetLocation(gis_Geo,p);
+			Bezier2 b;
+			ps->GetSide(gis_Geo,0,b);
+			p = b.midpoint(0.5);
 			p=zoomer->LLToPixel(p);
-			glColor4f(1,1,1,1);
 			GUI_PlotIcon(g,"handle_closeloop.png", p.x(), p.y(),0.0,1.0);
 		}
-		else
-		{
-			vector<Point2>	pts;
-			SideToPoints(fac->GetOuterRing(), 0, zoomer, pts);
-			glColor3f(1,1,1);
-			glLineWidth(3);
-			glBegin(GL_LINES);
-			for(vector<Point2>::iterator p = pts.begin(); p != pts.end(); ++p)
-				glVertex2(*p);
-			glEnd();
-			glLineWidth(1);
-		}
-
-		glLineWidth(2);
+		
 		g->SetState(false,0,false,true,true,false,false);
+		glLineWidth(2);
 		int n = ps->GetNumSides();
 		for(int i = 0; i < n; ++i)
 		{

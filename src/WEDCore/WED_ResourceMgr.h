@@ -109,7 +109,12 @@ struct	lin_info_t {
 	float		scale_t;
 	float		eff_width;
 	float		rgb[3];
+	struct	caps {
+		float s1,sm,s2,t1,t2;
+	};
 	vector<float>	s1,sm,s2;
+	vector<caps>	start_caps, end_caps;
+	int			align;
 };
 
 struct	str_info_t {
@@ -124,7 +129,7 @@ struct	road_info_t {
 
 struct agp_t {
 	struct obj {
-		float		x,y,r;			// annotation position
+		float		x,y,z,r;			// annotation position
 		int		show_lo,show_hi;
 		string	name;
 	};
