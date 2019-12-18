@@ -234,8 +234,8 @@ int		ConfirmMessage(const char * inMsg, const char * proceedBtn, const char * ca
 
 int DoSaveDiscardDialog(const char * inMessage1, const char * inMessage2)
 {
-	int result = MessageBoxW(
-			NULL,
+	HWND thisWin = GetForegroundWindow();
+	int result = MessageBoxW(thisWin,
 			convert_str_to_utf16(inMessage2).c_str(),
 			convert_str_to_utf16(inMessage1).c_str(),
 			MB_YESNOCANCEL | MB_TOPMOST | MB_TASKMODAL |
