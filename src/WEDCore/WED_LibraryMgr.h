@@ -40,6 +40,7 @@ enum {
 #if ROAD_EDITING
 	,res_Road
 #endif	
+	,res_Decal
 };
 
 // "Virtual" package numbers...package mgr IDs packages as 0-based index.  These meta-constants are used for filtering in special ways.

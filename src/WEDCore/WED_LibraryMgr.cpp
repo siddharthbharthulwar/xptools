@@ -581,6 +581,7 @@ void WED_LibraryMgr::AccumResource(const string& path, int package, const string
 #if ROAD_EDITING
 	else if(suffix == "net") rt = res_Road;
 #endif
+	else if(suffix == "dcl") { rt = res_Decal; status = status_Private; }
 	else return;
 
 	if (package >= 0 && status >= status_Public && !is_backup) gPackageMgr->AddPublicItems(package);

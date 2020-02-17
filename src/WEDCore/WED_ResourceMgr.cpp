@@ -115,6 +115,7 @@ void	WED_ResourceMgr::Purge(void)
 	mFac.clear();
 	mStr.clear();
 	mAGP.clear();
+	mDcl.clear();
 }
 
 int		WED_ResourceMgr::GetNumVariants(const string& path)
@@ -311,7 +312,7 @@ bool	WED_ResourceMgr::GetLin(const string& path, lin_info_t const *& info)
 	out_info->start_caps.clear();
 	out_info->end_caps.clear();
 	out_info->align = 0;
-	out_info->hasDecal = false;
+	out_info->decal_lib.clear();
 	
 	while(!MFS_done(&s))
 	{
@@ -375,9 +376,9 @@ bool	WED_ResourceMgr::GetLin(const string& path, lin_info_t const *& info)
 		{
 			out_info->align = MFS_double(&s);
 		}
-		else if (MFS_string_match(&s,"DECAL_LIB", true))
+		else if (MFS_string_match(&s,"DECAL_LIB", false))
 		{
-			out_info->hasDecal=true;
+			MFS_string(&s, &out_info->decal_lib);
 		}
 		
 		if (MFS_string_match(&s,"#wed_text", false)) 
@@ -387,10 +388,13 @@ bool	WED_ResourceMgr::GetLin(const string& path, lin_info_t const *& info)
 	}
 	MemFile_Close(lin);
 	
-	if (out_info->s1.size() < 1) 
-		return false;
+	if (out_info->s1.size() < 1) return false;
 
 	out_info->eff_width = out_info->scale_s * ( out_info->s2[0] - out_info->s1[0] - 4 / tex_width ); // assume 2 transparent pixels on each side
+
+	out_info->decals = nullptr;
+	if(out_info->decal_lib.size())
+		GetDcl(out_info->decal_lib, out_info->decals);
 
 	process_texture_path(p,out_info->base_tex);
 	return true;
@@ -533,6 +537,11 @@ bool	WED_ResourceMgr::GetPol(const string& path, pol_info_t const*& info)
 			MFS_string(&s,&pol->group);
 			pol->group_offset = MFS_int(&s);
 		}
+		else if (MFS_string_match(&s,"DECAL_LIB", false))
+		{
+			MFS_string(&s, &pol->decal_lib);
+		}
+
 		
 		if (MFS_string_match(&s,"#wed_text", false)) 
 			MFS_string_eol(&s,&pol->description);
@@ -540,6 +549,12 @@ bool	WED_ResourceMgr::GetPol(const string& path, pol_info_t const*& info)
 			MFS_string_eol(&s,NULL);
 	}
 	MemFile_Close(file);
+	
+	pol->decals = nullptr;
+	if(pol->decal_lib.size())
+		GetDcl(pol->decal_lib, pol->decals);
+
+
 	process_texture_path(p,pol->base_tex);
 	return true;
 }
@@ -1608,3 +1623,74 @@ bool	WED_ResourceMgr::GetRoad(const string& path, road_info_t& out_info)
 	return true;
 }
 #endif
+
+bool	WED_ResourceMgr::GetDcl(const string& path, dcl_info_t const *& info)
+{
+	auto i = mDcl.find(path);
+	if(i != mDcl.end())
+	{
+		info = &i->second;
+		return true;
+	}
+	
+	string p = mLibrary->GetResourcePath(path);
+	MFMemFile * mf = MemFile_Open(p.c_str());
+	if(!mf) return false;
+
+	MFScanner	s;
+	MFS_init(&s, mf);
+
+	int versions[] = { 1000, 0 };
+
+	if(!MFS_xplane_header(&s,versions,"DECAL",NULL))
+	{
+		MemFile_Close(mf);
+		return false;
+	}
+	
+	dcl_info_t * dcl = &mDcl[path];
+	info = dcl;
+
+	while(!MFS_done(&s))
+	{
+		dcl_info_t::decal_t d;
+		if (MFS_string_match(&s,"DECAL_PARAMS", false))
+		{
+			d.scale_s = d.scale_t = MFS_double(&s);
+		}
+		else if (MFS_string_match(&s,"DECAL_PARAMS_PROJ", false))
+		{
+			d.scale_s = MFS_double(&s);
+			d.scale_t = MFS_double(&s);
+		}
+		else
+		{
+			MFS_string_eol(&s,NULL);
+			continue;
+		}
+		d.dither = MFS_double(&s);
+		
+		d.rgb_key.r = MFS_double(&s);
+		d.rgb_key.g = MFS_double(&s);
+		d.rgb_key.b = MFS_double(&s);
+		d.rgb_key.a = MFS_double(&s);
+		d.rgb_key.x = MFS_double(&s);
+		d.rgb_key.y = MFS_double(&s);
+		
+		d.alpha_key.r = MFS_double(&s);
+		d.alpha_key.g = MFS_double(&s);
+		d.alpha_key.b = MFS_double(&s);
+		d.alpha_key.a = MFS_double(&s);
+		d.alpha_key.x = MFS_double(&s);
+		d.alpha_key.y = MFS_double(&s);
+	
+		MFS_string(&s,&d.texture);
+		
+		process_texture_path(p, d.texture);
+		dcl->decals.push_back(d);
+	}
+	MemFile_Close(mf);
+	
+	return true;
+}
+

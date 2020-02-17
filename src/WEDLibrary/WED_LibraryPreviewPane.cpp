@@ -20,6 +20,12 @@
  * THE SOFTWARE.
  *
  */
+ 
+// defining this makes the preview window show things with propper perspective view, rather than orthoscopic
+// e.g. x=10 is an almost orthoscopic view, as viewed from far away, 
+// while x=1.01 is a dramatically distorted view from very close up with a very wide angle lens
+
+#define VIEW_DISTANCE 1.5
 
 #include "WED_LibraryPreviewPane.h"
 
@@ -269,10 +275,6 @@ int		WED_LibraryPreviewPane::MouseMove  (int x, int y)
 	return 1;
 }
 
-
-
-#define VIEW_DISTANCE 2.5
-
 void	WED_LibraryPreviewPane::begin3d(int *b, double radius_m)
 {
 	double dx = b[2] - b[0];
@@ -289,6 +291,7 @@ void	WED_LibraryPreviewPane::begin3d(int *b, double radius_m)
 	glPushMatrix();
 	glLoadIdentity();
 #ifdef VIEW_DISTANCE
+	act_radius *=  (VIEW_DISTANCE - 1.0) / VIEW_DISTANCE;
 	glFrustum(sx * -act_radius, sx * act_radius, sy * -act_radius, sy * act_radius, 
 					(VIEW_DISTANCE - 1.0) * radius_m, (VIEW_DISTANCE + 1.0) * radius_m);
 #else
@@ -298,7 +301,7 @@ void	WED_LibraryPreviewPane::begin3d(int *b, double radius_m)
 	glPushMatrix();
 	glLoadIdentity();
 #ifdef VIEW_DISTANCE
-	glTranslatef(0,0.0, -VIEW_DISTANCE * radius_m);
+	glTranslatef(0,0, -VIEW_DISTANCE * radius_m);
 #endif
 	glRotatef(mThe,1,0,0);
 	glRotatef(mPsi,0,1,0);
@@ -394,6 +397,24 @@ void	WED_LibraryPreviewPane::Draw(GUI_GraphState * g)
 					{
 						g->SetState(false,1,false,true,true,false,false);
 						g->BindTex(tex_id,0);
+						
+						// do the really dumb, old school multi-textureing without shaders
+						// g->BindTex(decal_tex_id, x) (x=1 or 2 if a second decal is involved ?)
+
+						// glBlendColor(r, g, b, a) using the numbers from the color_key
+						// glBlendFuncSeparate(GL_DST_COLOR, GL_ONE_MINUS_DST_COLOR, .... )
+						//
+						// the blending also might go in multiple steps through intermediary buffers, 
+						// i.e first buf1      = decal + albedo using a first BlendFunc
+						//     then  framebuf +=  buf 1 using another BlendFunc
+						//
+						// but since the DECAL docu suggest two separate color keys and the use of the 
+						// source alpha channel as greyscale, a shader might be needed to do that math,
+						// with the 13 (!) decal parameters passed as arguments to the shader, for each decal
+						//
+						// and finally issue extra coordinates for the decal textures
+						// glMultiTexCoord2f(GL_TEXTURE0_ARB + x, decal.scale_u * s, decal.scale_v * t);
+						// 
 						
 						// always fit into vertical size of window
 						float dt = (b[3]-b[1]) / mZoom;
@@ -569,7 +590,7 @@ void	WED_LibraryPreviewPane::Draw(GUI_GraphState * g)
 				break;
 			case res_Line:
 				if(lin)
-					snprintf(buf1, sizeof(buf1), "%s %s", lin->description.c_str(), lin->hasDecal ? "(decal not shown)" : "");
+					snprintf(buf1, sizeof(buf1), "%s %s", lin->description.c_str(), lin->decal_lib.size() ? "(decal not shown)" : "");
 				if (lin && lin->s1.size() && lin->s2.size())
 					snprintf(buf2, sizeof(buf2), "w~%.0f%s",lin->eff_width * (gIsFeet ? 100.0/2.54 : 100.0), gIsFeet ? "in" : "cm" );
 				break;

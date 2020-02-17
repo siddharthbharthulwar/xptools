@@ -53,6 +53,20 @@
 
 class	WED_LibraryMgr;
 
+struct dcl_info_t {
+	struct key_t {
+		float r,g,b,a;
+		float x,y;
+	};
+	struct decal_t {
+		float			scale_s, scale_t;
+		float			dither;
+		key_t			rgb_key, alpha_key;
+		string			texture;
+	};
+	vector<decal_t> decals;
+};
+
 struct	pol_info_t {
 	string		base_tex; //Relative path
 	bool		hasDecal;
@@ -69,6 +83,8 @@ struct	pol_info_t {
 	vector <Bbox2>	mSubBoxes;       // for subTexture selection in PreviewPanel
 	Bbox2		mUVBox;              // set by PreviewPanel from selected subTexture
 	string		description;
+	string		decal_lib;
+	const dcl_info_t * decals;
 };
 
 #include "WED_FacadePreview.h"
@@ -103,7 +119,7 @@ struct fac_info_t : public REN_FacadeLOD_t {
 	// WED only
 	vector<string>	wallName;      // wall names, for property window etc
 	vector<string>	wallUse;       // official width range supported by this wall
-	string         h_range;       // official heights (or height range) of the facade
+	string         h_range;        // official heights (or height range) of the facade
 };
 
 struct	lin_info_t {
@@ -118,8 +134,9 @@ struct	lin_info_t {
 	vector<float>	s1,sm,s2;
 	vector<caps>	start_caps, end_caps;
 	int			align;
-	bool		hasDecal;
 	string		description;
+	string		decal_lib;
+	const dcl_info_t * decals;
 };
 
 struct	str_info_t {
@@ -172,6 +189,8 @@ public:
 			bool	GetObjRelative(const string& obj_path, const string& parent_path, XObj8 const *& obj);
 			bool	GetAGP(const string& path, agp_t const *& info);
 			bool	GetRoad(const string& path, road_info_t& out_info);
+			
+			bool	GetDcl(const string& path, dcl_info_t const *& dcl);
 
 	virtual	void	ReceiveMessage(
 							GUI_Broadcaster *		inSrc,
@@ -192,6 +211,7 @@ private:
 #if ROAD_EDITING
 	unordered_map<string,road_info_t>		mRoad;
 #endif	
+	unordered_map<string,dcl_info_t>		mDcl;
 	WED_LibraryMgr *				mLibrary;
 };	
 
