@@ -519,7 +519,7 @@ someday check footer when in sloooow mode
 	while (inPasses[pass_number])
 	{
 		int flags = inPasses[pass_number];
-		int curObjMode = obj_ModeMSL;
+		obj_elev_mode curObjMode = obj_ModeMSL;
 
 		if (flags & dsf_CmdProps)
 		{

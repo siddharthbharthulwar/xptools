@@ -202,9 +202,9 @@ double		WED_ObjPlacement::GetCustomMSL(void) const
 	return msl.value;
 }
 
-void		WED_ObjPlacement::SetCustomMSL(double in_msl)
+void		WED_ObjPlacement::SetCustomMSL(double in_msl, bool is_AGL)
 {
-	has_msl = obj_setMSL;
+	has_msl = is_AGL ? obj_setAGL : obj_setMSL;
 	msl = in_msl;
 }
 
